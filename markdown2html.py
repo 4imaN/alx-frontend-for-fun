@@ -1,63 +1,103 @@
 #!/usr/bin/python3
+
 """
-This is a script to convert a Markdown file to HTML.
-
-Usage:
-    ./markdown2html.py [input_file] [output_file]
-
-Arguments:
-    input_file: the name of the Markdown file to be converted
-    output_file: the name of the output HTML file
-
-Example:
-    ./markdown2html.py README.md README.html
+markdown2html module
+Converts Markdown files to HTML
 """
 
-import argparse
-import pathlib
-import re
+import sys
+import os
+import hashlib
 
 
-def convert_md_to_html(input_file, output_file):
-    '''
-    Converts markdown file to HTML file
-    '''
-    # Read the contents of the input file
-    with open(input_file, encoding='utf-8') as f:
-        md_content = f.readlines()
+def convert_md_to_html(md_line):
+    """
+    Converts a single line of Markdown to HTML.
+    """
+    # Convert headings
+    for i in range(6, 0, -1):
+        if md_line.startswith('#' * i + ' '):
+            return f"<h{i}>{md_line[i+1:].strip()}</h{i}>"
+    
+    # Convert unordered lists
+    if md_line.startswith('- '):
+        return f"<li>{md_line[2:].strip()}</li>", 'ul'
+    
+    # Convert ordered lists
+    if md_line.startswith('* '):
+        return f"<li>{md_line[2:].strip()}</li>", 'ol'
+    
+    # Convert bold and emphasis
+    md_line = md_line.replace('**', '<b>').replace('__', '<em>')
+    md_line = md_line.replace('<b>', '</b>', 1).replace('<em>', '</em>', 1)
+    
+    # Convert custom syntax
+    if '[[' in md_line and ']]' in md_line:
+        start = md_line.index('[[') + 2
+        end = md_line.index(']]')
+        content = md_line[start:end]
+        md5_hash = hashlib.md5(content.encode()).hexdigest()
+        md_line = md_line.replace(f"[[{content}]]", md5_hash)
+    
+    if '((' in md_line and '))' in md_line:
+        start = md_line.index('((') + 2
+        end = md_line.index('))')
+        content = md_line[start:end]
+        modified_content = content.replace('c', '').replace('C', '')
+        md_line = md_line.replace(f"(({content}))", modified_content)
 
-    html_content = []
-    for line in md_content:
-        # Check if the line is a heading
-        match = re.match(r'(#){1,6} (.*)', line)
-        if match:
-            # Get the level of the heading
-            h_level = len(match.group(1))
-            # Get the content of the heading
-            h_content = match.group(2)
-            # Append the HTML equivalent of the heading
-            html_content.append(f'<h{h_level}>{h_content}</h{h_level}>\n')
-        else:
-            html_content.append(line)
-
-    # Write the HTML content to the output file
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.writelines(html_content)
+    return f"<p>{md_line.strip()}</p>"
 
 
-if __name__ == '__main__':
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Convert markdown to HTML')
-    parser.add_argument('input_file', help='path to input markdown file')
-    parser.add_argument('output_file', help='path to output HTML file')
-    args = parser.parse_args()
+def main():
+    """
+    Main function to handle file input/output and conversion.
+    """
+    if len(sys.argv) < 3:
+        print("Usage: ./markdown2html.py README.md README.html", file=sys.stderr)
+        exit(1)
 
-    # Check if the input file exists
-    input_path = pathlib.Path(args.input_file)
-    if not input_path.is_file():
-        print(f'Missing {input_path}', file=sys.stderr)
-        sys.exit(1)
+    md_filename = sys.argv[1]
+    html_filename = sys.argv[2]
 
-    # Convert the markdown file to HTML
-    convert_md_to_html(args.input_file, args.output_file)
+    if not os.path.exists(md_filename):
+        print(f"Missing {md_filename}", file=sys.stderr)
+        exit(1)
 
+    with open(md_filename, 'r') as md_file, open(html_filename, 'w') as html_file:
+        content = md_file.readlines()
+
+        in_list = False
+        list_type = None
+
+        for line in content:
+            stripped_line = line.strip()
+            if not stripped_line:
+                if in_list:
+                    html_file.write(f"</{list_type}>\n")
+                    in_list = False
+                continue
+
+            html_line, current_list_type = convert_md_to_html(stripped_line), None
+
+            if isinstance(html_line, tuple):
+                html_line, current_list_type = html_line
+
+            if current_list_type and not in_list:
+                html_file.write(f"<{current_list_type}>\n")
+                in_list = True
+                list_type = current_list_type
+            elif not current_list_type and in_list:
+                html_file.write(f"</{list_type}>\n")
+                in_list = False
+
+            html_file.write(html_line + "\n")
+
+        if in_list:
+            html_file.write(f"</{list_type}>\n")
+
+    exit(0)
+
+
+if __name__ == "__main__":
+    main()
